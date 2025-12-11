@@ -21,6 +21,7 @@ type AnalysisResult struct {
 	Duration float64
 	Conflict int // 0: No Conflict, 1: Spurious Retransmission
 	RTO      int // 0: No RTO, 1: RTO Retransmission occurred
+	FrTime   int64
 }
 
 // Congestion stateの情報

@@ -135,10 +135,9 @@ func (a *Analyzer) Run() error {
 						rto := 0
 						if conflict == 1 {
 							if targetState.CurrentEvent.NextState == "4" {
-								
 								rtoRelativeUs := targetState.CurrentEvent.NextTimeUs
 								rtoAbsTime := baseTime.Add(time.Duration(rtoRelativeUs) * time.Microsecond)
-
+								
 								existsAtRto, err := a.packetRepo.HasPacketAt(
 									targetState.RetransSeq,
 									rtoAbsTime,
@@ -152,11 +151,15 @@ func (a *Analyzer) Run() error {
 							}
 						}
 
+						// StartTime(絶対時刻) - baseTime(絶対時刻) = 相対時刻(microseconds)
+						frTimeUs := targetState.StartTime.Sub(baseTime).Microseconds()
+
 						result := domain.AnalysisResult{
 							Seq:      targetState.RetransSeq,
 							Duration: duration.Seconds(),
 							Conflict: conflict,
 							RTO:      rto,
+							FrTime:   frTimeUs,
 						}
 						
 						a.resultRepo.Save(result)

@@ -19,7 +19,7 @@ func NewCsvResultRepository(filename string) (*CsvResultRepository, error) {
 	}
 	w := csv.NewWriter(f)
 
-	w.Write([]string{"SequenceNumber", "TimeDuration", "Conflict", "RTO"})
+	w.Write([]string{"SequenceNumber", "TimeDuration", "Conflict", "RTO", "FrTime"})
 	w.Flush()
 
 	return &CsvResultRepository{
@@ -34,7 +34,9 @@ func (r *CsvResultRepository) Save(result domain.AnalysisResult) error {
 	confStr := strconv.Itoa(result.Conflict)
 	rtoStr := strconv.Itoa(result.RTO)
 
-	err := r.writer.Write([]string{seqStr, durStr, confStr, rtoStr})
+	frTimeStr := strconv.FormatInt(result.FrTime, 10)
+
+	err := r.writer.Write([]string{seqStr, durStr, confStr, rtoStr, frTimeStr})
 	if err == nil {
 		r.writer.Flush()
 	}
