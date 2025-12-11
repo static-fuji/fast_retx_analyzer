@@ -14,8 +14,8 @@ for i in {1..100}; do
     echo "Processing sample-${i}..."
 
     go run main.go \
-      -pcap "${DATA_DIR}/sample-${i}/pcaps/-0-1.pcap" \
-      -recv "${DATA_DIR}/sample-${i}/pcaps/-5-1.pcap" \
+      -source "${DATA_DIR}/sample-${i}/pcaps/-0-1.pcap" \
+      -sink "${DATA_DIR}/sample-${i}/pcaps/-5-1.pcap" \
       -csv  "${DATA_DIR}/sample-${i}/tcp-cong-state.csv" \
       -out  "${DATA_DIR}/sample-${i}/fr_result.csv"
 
