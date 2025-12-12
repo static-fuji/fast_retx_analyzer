@@ -11,6 +11,10 @@ type EventRepository interface {
 	LoadEvents() ([]domain.CongestionEvent, error)
 }
 
+type SrttRepository interface {
+	LoadSrttEntries() ([]domain.SrttEntry, error)
+}
+
 type PacketRepository interface {
 	NextPacket() (*domain.Packet, error)
 	HasPacketAt(targetSeq uint32, targetTime time.Time) (bool, error)
@@ -26,14 +30,22 @@ type ReceiverRepository interface {
 
 type Analyzer struct {
 	eventRepo  EventRepository
+	srttRepo   SrttRepository
 	packetRepo PacketRepository
 	resultRepo ResultRepository
 	recvRepo   ReceiverRepository
 }
 
-func NewAnalyzer(e EventRepository, p PacketRepository, r ResultRepository, recv ReceiverRepository) *Analyzer {
+func NewAnalyzer(
+	e EventRepository, 
+	s SrttRepository,
+	p PacketRepository, 
+	r ResultRepository, 
+	recv ReceiverRepository,
+) *Analyzer {
 	return &Analyzer{
 		eventRepo:  e,
+		srttRepo:   s,
 		packetRepo: p,
 		resultRepo: r,
 		recvRepo:   recv,
@@ -47,6 +59,7 @@ type flowState struct {
 	StartTime       time.Time
 	EventIndex      int
 	CurrentEvent    domain.CongestionEvent
+	RecordedSrtt    float64
 }
 
 func (a *Analyzer) Run() error {
@@ -54,7 +67,13 @@ func (a *Analyzer) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Loaded %d events.", len(events))
+	log.Printf("Loaded %d congestion events.", len(events))
+
+	srttEntries, err := a.srttRepo.LoadSrttEntries()
+	if err != nil {
+		return err
+	}
+	log.Printf("Loaded %d SRTT entries.", len(srttEntries))
 
 	flows := make(map[domain.FlowKey]*flowState)
 	var recvSeqCounts map[uint32]int
@@ -62,6 +81,9 @@ func (a *Analyzer) Run() error {
 
 	var baseTime time.Time
 	var isFirstPacket bool = true
+
+	currentSrttIndex := 0
+	currentSrttVal := 0.0
 
 	for {
 		pkt, err := a.packetRepo.NextPacket()
@@ -97,8 +119,20 @@ func (a *Analyzer) Run() error {
 		}
 		state := flows[fwdKey]
 
+		// 相対時刻(us)
 		relativeTimeUs := pkt.Timestamp.Sub(baseTime).Microseconds()
 
+		for currentSrttIndex < len(srttEntries) {
+			entry := srttEntries[currentSrttIndex]
+			if entry.TimeUs <= relativeTimeUs {
+				currentSrttVal = entry.Srtt
+				currentSrttIndex++
+			} else {
+				break
+			}
+		}
+
+		// A. 送信側ロジック
 		if pkt.PayloadLen > 0 {
 			if state.EventIndex < len(events) && !state.PendingRetrans {
 				targetEvent := events[state.EventIndex]
@@ -109,6 +143,7 @@ func (a *Analyzer) Run() error {
 						state.RetransSeq = pkt.Seq
 						state.StartTime = pkt.Timestamp 
 						state.CurrentEvent = targetEvent
+						state.RecordedSrtt = currentSrttVal
 						state.IgnoreThreshold = pkt.Seq
 						state.EventIndex++
 					}
@@ -116,14 +151,14 @@ func (a *Analyzer) Run() error {
 			}
 		}
 
+		// B. 受信側ロジック
 		if pkt.IsAck {
 			revKey := fwdKey.Reverse()
 			if targetState, exists := flows[revKey]; exists {
 				if targetState.PendingRetrans {
 					if pkt.Ack > targetState.RetransSeq {
 						duration := pkt.Timestamp.Sub(targetState.StartTime)
-						
-						// Conflict判定
+
 						conflict := 0
 						if count, ok := recvSeqCounts[targetState.RetransSeq]; ok {
 							if count > 1 {
@@ -131,17 +166,12 @@ func (a *Analyzer) Run() error {
 							}
 						}
 
-						// RTO判定
 						rto := 0
 						if conflict == 1 {
 							if targetState.CurrentEvent.NextState == "4" {
 								rtoRelativeUs := targetState.CurrentEvent.NextTimeUs
 								rtoAbsTime := baseTime.Add(time.Duration(rtoRelativeUs) * time.Microsecond)
-								
-								existsAtRto, err := a.packetRepo.HasPacketAt(
-									targetState.RetransSeq,
-									rtoAbsTime,
-								)
+								existsAtRto, err := a.packetRepo.HasPacketAt(targetState.RetransSeq, rtoAbsTime)
 								if err != nil {
 									log.Printf("Error checking RTO packet: %v", err)
 								}
@@ -151,15 +181,17 @@ func (a *Analyzer) Run() error {
 							}
 						}
 
-						// StartTime(絶対時刻) - baseTime(絶対時刻) = 相対時刻(microseconds)
 						frTimeUs := targetState.StartTime.Sub(baseTime).Microseconds()
+						diff := targetState.RecordedSrtt - duration.Seconds()
 
 						result := domain.AnalysisResult{
-							Seq:      targetState.RetransSeq,
-							Duration: duration.Seconds(),
-							Conflict: conflict,
-							RTO:      rto,
-							FrTime:   frTimeUs,
+							Seq:              targetState.RetransSeq,
+							Duration:         duration.Seconds(),
+							Conflict:         conflict,
+							RTO:              rto,
+							FrTime:           frTimeUs,
+							Srtt:             targetState.RecordedSrtt,
+							DiffSrttDuration: diff,
 						}
 						
 						a.resultRepo.Save(result)

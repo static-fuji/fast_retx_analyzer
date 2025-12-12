@@ -11,15 +11,15 @@ import (
 )
 
 func main() {
-	// コマンドライン引数の定義
-	srcPcapPath := flag.String("source", "", "Path to the Sender PCAP file (Required)")
-	sinkPcapPath := flag.String("sink", "", "Path to the Receiver PCAP file (Required)")
+	pcapPath := flag.String("pcap", "", "Path to the Sender PCAP file (Required)")
+	recvPcapPath := flag.String("recv", "", "Path to the Receiver PCAP file (Required)")
 	csvPath := flag.String("csv", "", "Path to the TCP congestion state CSV file (Required)")
+	srttPath := flag.String("srtt", "", "Path to the SRTT CSV file (Required)")
 	outPath := flag.String("out", "result.csv", "Path to the output CSV file (Default: result.csv)")
 
 	flag.Parse()
 
-	if *srcPcapPath == "" || *csvPath == "" || *sinkPcapPath == "" {
+	if *pcapPath == "" || *csvPath == "" || *recvPcapPath == "" || *srttPath == "" {
 		fmt.Fprintln(os.Stderr, "Error: missing required arguments.")
 		fmt.Fprintln(os.Stderr, "Usage:")
 		flag.PrintDefaults()
@@ -27,14 +27,15 @@ func main() {
 	}
 
 	eventRepo := adapter.NewCsvEventRepository(*csvPath)
+	srttRepo := adapter.NewCsvSrttRepository(*srttPath)
 
-	srcRepo, err := adapter.NewPcapRepository(*srcPcapPath)
+	pcapRepo, err := adapter.NewPcapRepository(*pcapPath)
 	if err != nil {
 		log.Fatalf("Failed to open sender pcap: %v", err)
 	}
-	defer srcRepo.Close()
+	defer pcapRepo.Close()
 
-	sinkRepo := adapter.NewPcapReceiverRepository(*sinkPcapPath)
+	recvRepo := adapter.NewPcapReceiverRepository(*recvPcapPath)
 
 	resultRepo, err := adapter.NewCsvResultRepository(*outPath)
 	if err != nil {
@@ -42,9 +43,11 @@ func main() {
 	}
 	defer resultRepo.Close()
 
-	analyzer := usecase.NewAnalyzer(eventRepo, srcRepo, resultRepo, sinkRepo)
+	analyzer := usecase.NewAnalyzer(eventRepo, srttRepo, pcapRepo, resultRepo, recvRepo)
 
-	log.Printf("Starting analysis...\n Source: %s\n Sink:   %s\n CSV:    %s", *srcPcapPath, *sinkPcapPath, *csvPath)
+	log.Printf("Starting analysis...\n Sender: %s\n Recv:   %s\n CSV:    %s\n SRTT:   %s", 
+		*pcapPath, *recvPcapPath, *csvPath, *srttPath)
+	
 	if err := analyzer.Run(); err != nil {
 		log.Fatalf("Analysis failed: %v", err)
 	}

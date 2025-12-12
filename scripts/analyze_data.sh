@@ -14,9 +14,10 @@ for i in {1..100}; do
     echo "Processing sample-${i}..."
 
     go run main.go \
-      -source "${DATA_DIR}/sample-${i}/pcaps/-0-1.pcap" \
-      -sink "${DATA_DIR}/sample-${i}/pcaps/-5-1.pcap" \
+      -pcap "${DATA_DIR}/sample-${i}/pcaps/-0-1.pcap" \
+      -recv "${DATA_DIR}/sample-${i}/pcaps/-5-1.pcap" \
       -csv  "${DATA_DIR}/sample-${i}/tcp-cong-state.csv" \
+      -srtt "${DATA_DIR}/sample-${i}/tcp-srtt.csv" \
       -out  "${DATA_DIR}/sample-${i}/fr_result.csv"
 
     if [ $? -ne 0 ]; then
